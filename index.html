@@ -3385,8 +3385,13 @@ function forecast(t){ const me=ME(), T=N(t); const rel=convScore(me)/(convScore(
   const fiscal=upkeep(me)*3*1.2 + 3*8; const esc=clamp(20+(T.warheads>0?30:0)+(allies.some(o=>N(o).warheads>0)?15:0)+G.tension*0.3+(me.warheads>0?5:0),0,99);
   return {h:'Three-turn outlook: force ratio '+rel.toFixed(2)+' now → about '+rel3.toFixed(2)+' after attrition'+(allies.length?' if '+allies.map(o=>N(o).name).join(", ")+' join':"")+'; fiscal exposure ≈ '+money(fiscal)+'; escalation risk '+Math.round(esc)+'/100. Formula-based game estimates, not predictions.',t:"warn"}; }
 
+function reportSheet(rep){
+  if (!rep) return; if (rep.type!=="strike") return showReport(rep.id);
+  const A=N(rep.att), B=N(rep.def), res=rep.result||"", v=/partial|limited/i.test(res)?"v-draw":/miss|lost|intercept/i.test(res)?"v-loss":"v-win";
+  openSheet(rep.name, '<div class="verdict '+v+'">'+res+'</div><p class="hint" style="margin:6px 0 10px">'+dateOf(rep.turn)+' · '+A.flag+' '+A.name+' against '+B.flag+' '+B.name+'</p>'+(rep.lines||[]).map(l=>'<div class="act">'+l+'</div>').join("")+'<button class="btn" onclick="closeSheet()" style="margin-top:10px">Close</button>');
+}
 function showReport(id){
-  const r=G.reports.find(x=>x.id===id); if(!r) return;
+  const r=G.reports.find(x=>x.id===id); if(!r) return; if (r.type==="strike") return reportSheet(r);
   const A=N(r.att), B=N(r.def);
   const v = r.type==="nuke"?"v-loss":(r.att===G.player?(r.ratio>.575?"v-win":r.ratio>.45?"v-draw":"v-loss"):r.def===G.player?(r.ratio>.575?"v-loss":r.ratio>.45?"v-draw":"v-win"):"v-draw");
   if (r.type==="nuke"){ openSheet('☢ '+r.name, '<div class="verdict v-loss">'+r.result+'</div><p class="hint" style="margin:6px 0 10px">'+dateOf(r.turn)+' · '+A.flag+' '+A.name+' against '+B.flag+' '+B.name+'</p><table><tr><td>Warheads launched</td><td class="num">'+r.count+'</td></tr><tr><td>Failed in flight</td><td class="num">'+r.failed+'</td></tr><tr><td>Intercepted</td><td class="num">'+r.stopped+'</td></tr><tr><td>Detonated</td><td class="num">'+r.got+'</td></tr><tr><td>Target categories</td><td>'+(r.cats||"—")+'</td></tr><tr><td>Estimated dead</td><td class="num">'+r.deaths.toFixed(1)+'M</td></tr>'+(r.whKilled?'<tr><td>Warheads destroyed on the ground</td><td class="num">'+r.whKilled+'</td></tr>':"")+'<tr><td>Regions hit</td><td>'+(r.hitNames.join(", ")||"—")+'</td></tr></table><button class="btn" onclick="closeSheet()" style="margin-top:12px">Close</button>'); return; }
@@ -3495,8 +3500,8 @@ function dossierCard(id){
 function targetPicker(eid, mode){
   const me=ME(), E=N(eid), rr=reachTo(G.player,eid);
   const all=regionsOf(eid);
-  const list = mode==="ground" ? all.filter(x=>canInvade(G.player,eid).ok) : all;
-  if (!list.length){ openSheet("No targets", '<p class="hint">There is nothing of theirs you can reach with this. '+(mode==="ground"?canInvade(G.player,eid).why:"")+'</p><button class="btn ghost" onclick="closeSheet()">Close</button>'); return; }
+  const list = mode==="ground" ? all.filter(x=>canInvade(G.player,eid).ok||regionsOf(G.player).some(y=>y.from===x.from)) : all;
+  if (!list.length){ openSheet("No targets", '<p class="hint">There is nothing of theirs you can reach with this. '+(mode==="ground"?"You need "+canInvade(G.player,eid).r.need+" fleet strength to land troops; you have "+Math.round(navalPower(me))+".":"")+'</p><button class="btn ghost" onclick="closeSheet()">Close</button>'); return; }
   const homes=[...new Set(list.map(x=>x.from))];
   TARGET_HOME=homes.includes(TARGET_HOME)?TARGET_HOME:homes[0];
   TARGET_RI=null; TARGET_MODE=mode; TARGET_EID=eid;
@@ -3504,7 +3509,7 @@ function targetPicker(eid, mode){
 }
 function drawPicker(){
   const eid=TARGET_EID, mode=TARGET_MODE, me=ME(), E=N(eid), rr=reachTo(G.player,eid);
-  const all=regionsOf(eid), list = mode==="ground" ? all.filter(x=>canInvade(G.player,eid).ok) : all;
+  const all=regionsOf(eid), list = mode==="ground" ? all.filter(x=>canInvade(G.player,eid).ok||regionsOf(G.player).some(y=>y.from===x.from)) : all;
   const homes=[...new Set(list.map(x=>x.from))];
   const here=list.filter(x=>x.from===TARGET_HOME);
   if (TARGET_RI===null && here.length) TARGET_RI=here[0].i;
@@ -3524,7 +3529,7 @@ function drawPicker(){
     foot='<button class="btn go" id="tp-go">Strike '+(sel?sel.r.name:"")+'</button>';
   } else { foot='<button class="btn go" id="tp-go">Proceed</button>'; }
   openSheet((mode==="ground"?"Offensive against ":"Strike on ")+E.flag+" "+E.name,
-    '<p class="hint">'+(mode==="ground"?("Route: "+rr.t+(rr.t!=="land"?" — reach factor "+Math.round(reachMult(G.player,eid)*100)+"%":"")+". "+me.ops+" operations left."):("Air power "+Math.round(airPower(me))+" against theirs "+Math.round(airPower(E))+". "+me.ops+" operations left."))+'</p>'+
+    '<p class="hint">'+(mode==="ground"?("Route: "+(regionsOf(G.player).some(y=>y.from===TARGET_HOME)?"overland from territory you hold":rr.t+(rr.t!=="land"?" — reach factor "+Math.round(rr.mult*100)+"%":""))+". "+me.ops+" operations left."):("Air power "+Math.round(airPower(me))+" against theirs "+Math.round(airPower(E))+". "+me.ops+" operations left."))+'</p>'+
     targetMap(TARGET_HOME,TARGET_RI,"tpick")+homeSel+regSel+detail+body+foot+
     '<button class="btn ghost" style="margin-top:6px" onclick="closeSheet()">Stand down</button>');
   const hs=$("#tp-home"); if(hs) hs.onchange=()=>{ TARGET_HOME=hs.value; TARGET_RI=null; drawPicker(); };
